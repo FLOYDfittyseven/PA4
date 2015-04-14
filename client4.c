@@ -72,7 +72,6 @@ command_input_thread( void * p )
 	char			prompt[] = "Enter a command>>";
 	char			string[512];
 	int			len;
-	void			*ret;
 	
 	pthread_detach( pthread_self() );
 	
@@ -83,8 +82,7 @@ command_input_thread( void * p )
 			sleep(2);
 		}
 		
-		ret = NULL;
-		pthread_exit( ret );
+		return 0;
 }
 
 void *
@@ -92,7 +90,6 @@ response_output_thread( void * p )
 {
 	int 			sd;
 	char			buffer[512];
-	void			*ret;
 	
 	sd = *(int *)p;
 	
@@ -102,9 +99,8 @@ response_output_thread( void * p )
 			printf("\n");
 		}
 		
-		ret = NULL;
 		free(p);
-		pthread_exit( ret );
+		return 0;
 }
 
 int
@@ -182,4 +178,3 @@ main( int argc, char ** argv )
 		_exit( 0 );
 	}
 }
-
