@@ -71,7 +71,7 @@ client_service_thread( void * arg )
 	int			limit, size;
 	/* float			ignore;
 	long			senderIPaddr; */
-	char			buffer[100];
+	char			buffer[150];
 
 	sd = *(int *)arg;
 	free( arg );					/* keeping to memory management covenant */
@@ -113,10 +113,22 @@ session_accepter_thread( void * arg )
 	struct sockaddr_in      senderAddr;
 	int 			*fdptr;
 	pthread_t		cServiceTID;
+	pthread_attr_t	attr;
 	
 	pthread_detach( pthread_self() );
 	
 	sd = *(int *)arg;
+	
+	if ( pthread_attr_init( &attr ) != 0 )
+	{
+		printf( "pthread_attr_init() failed in file %s line %d\n", __FILE__, __LINE__ );
+		return 0;
+	}
+	else if ( pthread_attr_setscope( &attr, PTHREAD_SCOPE_SYSTEM ) != 0 )
+	{
+		printf( "pthread_attr_setscope() failed in file %s line %d\n", __FILE__, __LINE__ );
+		return 0;
+	}
 	
 	ic = sizeof(senderAddr);
 	while ( (fd = accept( sd, (struct sockaddr *)&senderAddr, &ic )) != -1 )
@@ -132,6 +144,12 @@ session_accepter_thread( void * arg )
 		{
 			continue;
 		}
+	}
+	
+	if ( pthread_attr_destroy( &attr ) != 0 )
+	{
+		printf( "pthread_attr_init() failed in file %s line %d\n", __FILE__, __LINE__ );
+		return 1;
 	}
 	
 	free(arg);
@@ -206,4 +224,3 @@ main( int argc, char ** argv )
 	}
 	pthread_exit();
 }
-
