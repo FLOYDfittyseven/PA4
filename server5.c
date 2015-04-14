@@ -10,6 +10,12 @@
 
 /* This is the server file to be submitted. */
 
+struct argument
+{
+	int * sdptr;
+	struct account * bank;
+};
+
 int
 claim_port( const char * port )
 {
@@ -60,10 +66,34 @@ claim_port( const char * port )
 	}
 }
 
+int create_account( struct account * bank, char * accountname )
+{
+}
+
+int serve_account( struct account * bank, char * accountname )
+{
+}
+
+int deposit( struct account * bank, char * accountname, float amount )
+{
+}
+
+int withdraw( struct account * bank, char * accountname, float amount )
+{
+}
+
+float query( struct account * bank, char * accountname )
+{
+}
+
+int end( struct account * bank, char * accountname )
+{
+}
+
 void *
 client_service_thread( void * arg )
 {
-	int			sd;
+	int			*sd;
 	char			request[2048];
 	/* char			response[2048]; */
 	char			temp;
@@ -72,8 +102,10 @@ client_service_thread( void * arg )
 	/* float			ignore;
 	long			senderIPaddr; */
 	char			buffer[150];
+	struct account	*bank;
 
-	sd = *(int *)arg;
+	sd = (struct argument *)arg->sd;
+	bank = (struct argument *)arg->bank;
 	free( arg );					/* keeping to memory management covenant */
 	pthread_detach( pthread_self() );		/* Don't join on this thread */
 	
@@ -90,18 +122,19 @@ client_service_thread( void * arg )
 		{
 			case "create":
 			case "serve":
+			case "quit":
 			case "deposit":
 			case "withdraw":
 			case "query":
 			case "end":
-			case "quit":
 			default:
 		}
 		
 		write( sd, request, strlen(request) + 1 );
 	}
-	close( sd );
-	return 0;
+	close( *sd );
+	free(sd);
+	pthread_exit();
 }
 
 void *
@@ -109,15 +142,20 @@ session_accepter_thread( void * arg )
 {
 	socklen_t		ic;
 	int				fd;
-	int				sd;
+	int				*sd;
 	struct sockaddr_in      senderAddr;
 	int 			*fdptr;
 	pthread_t		cServiceTID;
 	pthread_attr_t	attr;
+	struct account	*bank;
+	struct argument	*argptr;
 	
 	pthread_detach( pthread_self() );
 	
-	sd = *(int *)arg;
+	sd = (struct argument *)arg->sdptr;
+	bank = (struct argument *)arg->bank;
+	
+	free(arg);
 	
 	if ( pthread_attr_init( &attr ) != 0 )
 	{
@@ -131,11 +169,26 @@ session_accepter_thread( void * arg )
 	}
 	
 	ic = sizeof(senderAddr);
-	while ( (fd = accept( sd, (struct sockaddr *)&senderAddr, &ic )) != -1 )
+	while ( (fd = accept( *sd, (struct sockaddr *)&senderAddr, &ic )) != -1 )
 	{
-		fdptr = (int *)malloc( sizeof(int) );
+		if( (fdptr = (int *)malloc( sizeof(int) )) == 0)
+		{
+			printf( "malloc() failed in %s line %d.\n", __FILE__, __LINE__);
+			return 1;
+		}
+		
 		*fdptr = fd;					/* pointers are not the same size as ints any more. */
-		if ( pthread_create( &cServiceTID, &attr, client_service_thread, fdptr ) != 0 )
+		
+		if( (argptr = ( struct argument * )malloc( sizeof( struct argument ) )) == 0)
+		{
+			printf( "malloc() failed in %s line %d.\n", __FILE__, __LINE__);
+			return 1;
+		}
+		
+		argptr->sd = fdptr;
+		argptr->bank = bank;
+		
+		if ( pthread_create( &cServiceTID, &attr, client_service_thread, argptr ) != 0 )
 		{
 			printf( "pthread_create() failed in file %s line %d\n", __FILE__, __LINE__ );
 			return 0;
@@ -152,8 +205,8 @@ session_accepter_thread( void * arg )
 		return 1;
 	}
 	
-	free(arg);
-	close(sd);
+	close(*sd);
+	free(sd);
 	pthread_exit();
 }
 
@@ -172,6 +225,10 @@ main( int argc, char ** argv )
 	pthread_t		pActionCycleTID;
 	pthread_attr_t		kernel_attr;
 	int *			sdptr;
+	struct argument *argptr;
+	struct account 	*bank;
+	struct account	*ptr;
+	int				count;
 
 	if ( pthread_attr_init( &kernel_attr ) != 0 )
 	{
@@ -196,20 +253,41 @@ main( int argc, char ** argv )
 	}
 	else
 	{
-		if( (sdptr = (int *)malloc( sizeof(int) )) == 0)
+		if( (bank = (struct account *)malloc( 20 * sizeof(struct account) )) == 0)
 		{
 			printf( "malloc() failed in %s line %d.\n", __FILE__, __LINE__);
 			return 1;
 		}
-		*sdptr = sd;
+		else if( (sdptr = (int *)malloc( sizeof(int) )) == 0)
+		{
+			printf( "malloc() failed in %s line %d.\n", __FILE__, __LINE__);
+			return 1;
+		}
+		else if( (argptr = (struct argument *)malloc( sizeof(struct argument) )) == 0)
+		{
+			printf( "malloc() failed in %s line %d.\n", __FILE__, __LINE__);
+			return 1;
+		}
 		
-		if ( (error = pthread_create( &sAccepterTID, &kernel_attr, session_accepter_thread, sdptr )) != 0 )
+		/* Initialize each account to NULL */
+		ptr = bank;
+		sdptr = &sd;
+		for( count = 0; count < 20; count++ )
+		{
+			*ptr = NULL;
+			ptr++;
+		}
+		
+		argptr->sdptr = sdptr;
+		argptr->bank = bank;
+		
+		if ( (error = pthread_create( &sAccepterTID, &kernel_attr, session_accepter_thread, argptr )) != 0 )
 		{
 			printf( "pthread_create() croaked in %s line %d: %s\n",
 			__FILE__, __LINE__, strerror( error ) );
 			return 1;	/* crash and burn */
 		}
-		else if ( (error = pthread_create( &pActionCycleTID, &kernel_attr, periodic_action_cycle_thread, sdptr )) != 0 )
+		else if ( (error = pthread_create( &pActionCycleTID, &kernel_attr, periodic_action_cycle_thread, argptr )) != 0 )
 		{
 			printf( "pthread_create() croaked in %s line %d: %s\n",
 			__FILE__, __LINE__, strerror( error ) );
