@@ -1,3 +1,5 @@
+#include <pthread.h>
+
 typedef enum { false, true } bool;
 
 struct account
@@ -14,10 +16,10 @@ void
 DestroyAccount( struct account * a );
 
 int
-create_bank_account( struct account ** bank, char * accountname, int in_session, char ** message );
+create_bank_account( struct account ** bank, pthread_mutex_t ** mutexes, char * accountname, int in_session, char ** message );
 
 int
-serve_account( struct account ** bank, char * accountname );
+serve_account( struct account ** bank, pthread_mutex_t ** mutexes, char * accountname, int * in_session, char ** message, char ** session_name );
 
 int
 deposit( struct account ** bank, char * accountname, float amount );
@@ -30,4 +32,3 @@ query( struct account ** bank, char * accountname );
 
 int
 end( struct account ** bank, char * accountname );
-
