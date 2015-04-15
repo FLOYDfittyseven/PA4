@@ -80,21 +80,26 @@ client_service_thread( void * arg )
 	/* int			limit, size; */
 	/* float			ignore;
 	long			senderIPaddr; */
-	char			buffer[150];
+	char			cmd_buf[150];
 	char			message[2048];
-	char			name[101];
+	char			name_buf[101];
+	char			session_name[101];
 	int				in_session;
 	int				quit_flag;
-	char			*ptr;
+	char			*messPtr;
+	char			*sNamePtr;
+	pthread_mutex_t	*mutexesPtr;
 
 	sd = *(int *)arg;
 	free( arg );					/* keeping to memory management covenant */
 	pthread_detach( pthread_self() );		/* Don't join on this thread */
 	
-	memcpy(buffer, "\0", sizeof(buffer));
+	memcpy(cmd_buf, "\0", sizeof(cmd_buf));
 	in_session = 0;
 	quit_flag = 0;
-	ptr = &message[0];
+	messPtr = &message[0];
+	sNamePtr = &session_name[0];
+	mutexesPtr = &mutexes[0];
 	
 	/* Keep taking input while socket is open and the user has not
 	 * chosen to quit
@@ -102,41 +107,43 @@ client_service_thread( void * arg )
 	while ( read( sd, request, sizeof(request) ) > 0 && !quit_flag )
 	{
 		printf( "server receives input:  %s\n", request );
-		sscanf(request, "%s %s", buffer, name);
+		sscanf(request, "%s %s", cmd_buf, name_buf);
 		
 		
-		if( strcmp( buffer, "create" ) == 0 )
+		if( strcmp( cmd_buf, "create" ) == 0 )
 		{
-				
-			pthread_mutex_lock( &mutexes[0] );
-			if( (create_bank_account( bank, name, in_session, &ptr ) == -1 ) )
+			if( (create_bank_account( bank, &mutexesPtr, name_buf, in_session, &messPtr ) == -1 ) )
 			{
 				fprintf( stderr, "create_bank_account() croaked in %s line %d\n", __FILE__, __LINE__ );
 				_exit( 1 );
 			}
-			
-			pthread_mutex_unlock( &mutexes[0] );
 		}
-		else if( strcmp( buffer, "serve" ) == 0 )
+		else if( strcmp( cmd_buf, "serve" ) == 0 )
+		{
+			if( (serve_account( bank, &mutexesPtr, name_buf, &in_session, &messPtr, &sNamePtr )) == -1 )
+			{
+				fprintf( stderr, "serve_account() croaked in %s line %d\n", __FILE__, __LINE__ );
+				_exit( 1 );
+			}
+		}
+		else if( strcmp( cmd_buf, "quit" ) == 0 )
 		{
 		}
-		else if( strcmp( buffer, "quit" ) == 0 )
+		else if( strcmp( cmd_buf, "deposit" ) == 0 )
 		{
 		}
-		else if( strcmp( buffer, "deposit" ) == 0 )
+		else if( strcmp( cmd_buf, "withdraw" ) == 0 )
 		{
 		}
-		else if( strcmp( buffer, "withdraw" ) == 0 )
+		else if( strcmp( cmd_buf, "query" ) == 0 )
 		{
 		}
-		else if( strcmp( buffer, "query" ) == 0 )
-		{
-		}
-		else if( strcmp( buffer, "end" ) == 0 )
+		else if( strcmp( cmd_buf, "end" ) == 0 )
 		{
 		}
 		else
 		{
+			sprintf( message, "Command \"%s\" not recognized.\n", cmd_buf );
 		}
 		
 		write( sd, message, strlen(message) + 1 );
