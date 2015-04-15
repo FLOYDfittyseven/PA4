@@ -82,6 +82,7 @@ client_service_thread( void * arg )
 	long			senderIPaddr; */
 	char			buffer[150];
 	char			message[2048];
+	char			name[101];
 	int				in_session;
 	int				quit_flag;
 	char			*ptr;
@@ -101,23 +102,20 @@ client_service_thread( void * arg )
 	while ( read( sd, request, sizeof(request) ) > 0 && !quit_flag )
 	{
 		printf( "server receives input:  %s\n", request );
-		sscanf(request, "%s", buffer);
+		sscanf(request, "%s %s", buffer, name);
 		
 		
 		if( strcmp( buffer, "create" ) == 0 )
 		{
-			sscanf(request, "%s", buffer);
 				
 			pthread_mutex_lock( &mutexes[0] );
-			if( (create_bank_account( bank, buffer, in_session, &ptr ) == -1 ) )
+			if( (create_bank_account( bank, name, in_session, &ptr ) == -1 ) )
 			{
 				fprintf( stderr, "create_bank_account() croaked in %s line %d\n", __FILE__, __LINE__ );
 				_exit( 1 );
 			}
-			else
-			{
-				break;
-			}
+			
+			pthread_mutex_unlock( &mutexes[0] );
 		}
 		else if( strcmp( buffer, "serve" ) == 0 )
 		{
@@ -162,11 +160,10 @@ session_accepter_thread( void * arg )
 	pthread_t		cServiceTID;
 	pthread_attr_t	attr;
 	
-	pthread_detach( pthread_self() );
-	
 	sd = *(int *)arg;
-	
 	free(arg);
+	
+	pthread_detach( pthread_self() );
 	
 	if ( pthread_attr_init( &attr ) != 0 )
 	{
@@ -266,7 +263,7 @@ main( int argc, char ** argv )
 		
 		for(i=0; i<21; i++)
 		{
-			if( ( pthread_mutex_init( &mutexes[i], NULL ) ) == 0)
+			if( ( pthread_mutex_init( &mutexes[i], NULL ) ) != 0)
 			{
 				printf( "pthread_mutex_init() failed in %s line %d.\n", __FILE__, __LINE__);
 				return 1;
@@ -275,7 +272,7 @@ main( int argc, char ** argv )
 		
 		
 		/* Initialize each account to NULL */
-		sdptr = &sd;
+		*sdptr = sd;
 		for( count = 0; count < 20; count++ )
 		{
 			bank[count] = NULL;
