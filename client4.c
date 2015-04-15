@@ -96,7 +96,6 @@ response_output_thread( void * p )
 	while ( (read( sd, buffer, sizeof(buffer) )) > 0 )
 		{
 			write( 1, buffer, strlen(buffer) );
-			printf("\n");
 		}
 		
 		free(p);
