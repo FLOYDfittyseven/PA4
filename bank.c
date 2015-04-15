@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <pthread.h>
 
 struct account *
 CreateAccount( char * accountname )
@@ -50,19 +51,20 @@ DestroyAccount( struct account * a )
  * trailing null byte).
  */
 int
-create_bank_account( struct account ** bank, char * accountname, int in_session, char ** message )
+create_bank_account( struct account ** bank, pthread_mutex_t ** mutexes, char * accountname, int in_session, char ** message )
 {
 	int i;
 	
-	if( !bank | !accountname )
+	if( !bank | !accountname | !mutexes )
 	{
 		return -1;
 	}
 	else if( in_session )
 	{
-		return sprintf( *message, "You may not create accounts while in a customer session.\n");
+		return sprintf( *message, "You may not create accounts while in a customer session.\n" );
 	}
 	
+	pthread_mutex_lock( mutexes[0] );
 	for( i=0; i<20; i++ )
 	{
 		if( !bank[i] )
@@ -71,6 +73,7 @@ create_bank_account( struct account ** bank, char * accountname, int in_session,
 		}
 		else if( strcmp( accountname, bank[i]->accountname ) == 0 )
 		{
+			pthread_mutex_unlock( mutexes[0] );
 			return sprintf( *message, "Account \"%s\" already exists.\n", accountname );
 		}
 		else
@@ -81,18 +84,53 @@ create_bank_account( struct account ** bank, char * accountname, int in_session,
 	
 	if( i == 20)
 	{
+		pthread_mutex_unlock( mutexes[0] );
 		return sprintf( *message, "Bank is full.\n" );
 	}
 	
 	bank[i] = CreateAccount( accountname );
-	return sprintf( *message, "Account \"%s\" successfully created.\n", accountname);;
+	pthread_mutex_unlock( mutexes[0] );
+	return sprintf( *message, "Account \"%s\" successfully created.\n", accountname );
+}
+
+
+int
+serve_account( struct account ** bank, pthread_mutex_t ** mutexes, char * accountname, int * in_session, char ** message, char ** session_name )
+{
+	int i;
+	
+	if( !bank | !accountname | !mutexes )
+	{
+		return -1;
+	}
+	else if( *in_session )
+	{
+		return sprintf( *message, "You must end the current customer session (%s) before serving an account.\n", *session_name );
+	}
+	
+	for( i=0; i<20; i++ )
+	{
+		if( !bank[i] )
+		{
+			break;
+		}
+		else if( strcmp( accountname, bank[i]->accountname ) == 0 )
+		{
+			pthread_mutex_lock( mutexes[i+1] );
+			*in_session = 1;
+			strcpy( *session_name, accountname );
+			return sprintf( *message, "Now serving account \"%s\".\n", accountname );
+		}
+		else
+		{
+			continue;
+		}
+	}
+	
+	return sprintf( *message, "Account \"%s\" does not exist.\n", accountname );
 }
 
 /*
-int serve_account( struct account * bank, char * accountname )
-{
-}
-
 int deposit( struct account * bank, char * accountname, float amount )
 {
 }
