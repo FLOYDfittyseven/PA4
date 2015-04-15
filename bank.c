@@ -108,4 +108,3 @@ float query( struct account * bank, char * accountname )
 int end( struct account * bank, char * accountname )
 {
 }*/
-
