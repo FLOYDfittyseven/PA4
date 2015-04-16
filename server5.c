@@ -11,13 +11,7 @@
 
 /* This is the server file to be submitted. */
 
-struct account 	**bank;
-
-/* mutexes[0] is the mutex for the entire bank.
- * mutexes[1] - mutexes[20] are the mutexes for
- * accounts 1 - 20.
- */
-static pthread_mutex_t mutexes[21];
+struct bank *B;
 
 int
 claim_port( const char * port )
@@ -82,24 +76,25 @@ client_service_thread( void * arg )
 	long			senderIPaddr; */
 	char			cmd_buf[150];
 	char			message[2048];
-	char			name_buf[101];
+	char			buf2[101];
 	char			session_name[101];
 	int				in_session;
 	int				quit_flag;
 	char			*messPtr;
 	char			*sNamePtr;
-	pthread_mutex_t	*mutexesPtr;
+	char			*buf2ptr;
+	double			amount;
 
 	sd = *(int *)arg;
 	free( arg );					/* keeping to memory management covenant */
 	pthread_detach( pthread_self() );		/* Don't join on this thread */
 	
-	memcpy(cmd_buf, "\0", sizeof(cmd_buf));
+	/*memcpy(cmd_buf, "\0", sizeof(cmd_buf));*/
 	in_session = 0;
 	quit_flag = 0;
 	messPtr = &message[0];
 	sNamePtr = &session_name[0];
-	mutexesPtr = &mutexes[0];
+	buf2ptr = &buf2[0];
 	
 	/* Keep taking input while socket is open and the user has not
 	 * chosen to quit
@@ -107,12 +102,18 @@ client_service_thread( void * arg )
 	while ( read( sd, request, sizeof(request) ) > 0 && !quit_flag )
 	{
 		printf( "server receives input:  %s\n", request );
-		sscanf(request, "%s %s", cmd_buf, name_buf);
 		
+		memset(cmd_buf, '\0', sizeof(cmd_buf));
+		memset(buf2, '\0', sizeof(buf2));
+		sscanf(request, "%s %s", cmd_buf, buf2);
 		
 		if( strcmp( cmd_buf, "create" ) == 0 )
 		{
-			if( (create_bank_account( bank, &mutexesPtr, name_buf, in_session, &messPtr ) == -1 ) )
+			if( !(*buf2) )
+			{
+				sprintf( message, "You did not specify an account name to be created.\n" );
+			}
+			else if( (create_bank_account( B, buf2, in_session, &messPtr ) == -1 ) )
 			{
 				fprintf( stderr, "create_bank_account() croaked in %s line %d\n", __FILE__, __LINE__ );
 				_exit( 1 );
@@ -120,7 +121,11 @@ client_service_thread( void * arg )
 		}
 		else if( strcmp( cmd_buf, "serve" ) == 0 )
 		{
-			if( (serve_account( bank, &mutexesPtr, name_buf, &in_session, &messPtr, &sNamePtr )) == -1 )
+			if( !(*buf2) )
+			{
+				sprintf( message, "You did not specify an account name to be served.\n" );
+			}
+			else if( (serve_account( B, buf2, &in_session, &messPtr, &sNamePtr )) == -1 )
 			{
 				fprintf( stderr, "serve_account() croaked in %s line %d\n", __FILE__, __LINE__ );
 				_exit( 1 );
@@ -131,19 +136,43 @@ client_service_thread( void * arg )
 		}
 		else if( strcmp( cmd_buf, "deposit" ) == 0 )
 		{
+			amount = atof(buf2ptr);
+			if( (deposit( B, amount, &messPtr )) == -1 )
+			{
+				fprintf( stderr, "serve_account() croaked in %s line %d\n", __FILE__, __LINE__ );
+				_exit( 1 );
+			}
 		}
 		else if( strcmp( cmd_buf, "withdraw" ) == 0 )
 		{
+			amount = atof(buf2ptr);
+			if( (withdraw( B, amount, &messPtr )) == -1 )
+			{
+				fprintf( stderr, "serve_account() croaked in %s line %d\n", __FILE__, __LINE__ );
+				_exit( 1 );
+			}
 		}
 		else if( strcmp( cmd_buf, "query" ) == 0 )
 		{
 		}
 		else if( strcmp( cmd_buf, "end" ) == 0 )
 		{
+			if( (end( B, &in_session, &messPtr, sNamePtr )) == -1 )
+			{
+				fprintf( stderr, "serve_account() croaked in %s line %d\n", __FILE__, __LINE__ );
+				_exit( 1 );
+			}
 		}
 		else
 		{
-			sprintf( message, "Command \"%s\" not recognized.\n", cmd_buf );
+			if( !(*cmd_buf) )
+			{
+				sprintf( message, "No command given.\n" );
+			}
+			else
+			{
+				sprintf( message, "Command \"%s\" not recognized.\n", cmd_buf );
+			}
 		}
 		
 		write( sd, message, strlen(message) + 1 );
@@ -230,9 +259,7 @@ main( int argc, char ** argv )
 	pthread_t		sAccepterTID;
 	pthread_t		pActionCycleTID;
 	pthread_attr_t		kernel_attr;
-	int				count;
 	int				*sdptr;
-	int				i;
 
 	if ( pthread_attr_init( &kernel_attr ) != 0 )
 	{
@@ -244,9 +271,9 @@ main( int argc, char ** argv )
 		printf( "pthread_attr_setscope() failed in file %s line %d\n", __FILE__, __LINE__ );
 		return 0;
 	}
-	else if ( (sd = claim_port( "58288" )) == -1 )
+	else if ( (sd = claim_port( "58289" )) == -1 )
 	{
-		write( 1, message, sprintf( message,  "\x1b[1;31mCould not bind to port %s errno %s\x1b[0m\n", "58288", strerror( errno ) ) );
+		write( 1, message, sprintf( message,  "\x1b[1;31mCould not bind to port %s errno %s\x1b[0m\n", "58289", strerror( errno ) ) );
 		return 1;
 	}
 	else if ( listen( sd, 100 ) == -1 )
@@ -257,9 +284,9 @@ main( int argc, char ** argv )
 	}
 	else
 	{
-		if( (bank = (struct account **)malloc( 20 * sizeof(struct account *) )) == 0)
+		if( (B = CreateBank()) == NULL)
 		{
-			printf( "malloc() failed in %s line %d.\n", __FILE__, __LINE__);
+			printf( "CreateBank() failed in %s line %d.\n", __FILE__, __LINE__);
 			return 1;
 		}
 		else if( (sdptr = (int *)malloc( sizeof(int) )) == 0)
@@ -267,31 +294,13 @@ main( int argc, char ** argv )
 			printf( "malloc() failed in %s line %d.\n", __FILE__, __LINE__);
 			return 1;
 		}
-		
-		for(i=0; i<21; i++)
-		{
-			if( ( pthread_mutex_init( &mutexes[i], NULL ) ) != 0)
-			{
-				printf( "pthread_mutex_init() failed in %s line %d.\n", __FILE__, __LINE__);
-				return 1;
-			}
-		}
-		
-		
-		/* Initialize each account to NULL */
-		*sdptr = sd;
-		for( count = 0; count < 20; count++ )
-		{
-			bank[count] = NULL;
-		}
-		
-		if ( (error = pthread_create( &sAccepterTID, &kernel_attr, session_accepter_thread, sdptr )) != 0 )
+		else if ( ( *sdptr = sd ), (error = pthread_create( &sAccepterTID, &kernel_attr, session_accepter_thread, sdptr )) != 0 )
 		{
 			printf( "pthread_create() croaked in %s line %d: %s\n",
 			__FILE__, __LINE__, strerror( error ) );
 			return 1;	/* crash and burn */
 		}
-		else if ( (error = pthread_create( &pActionCycleTID, &kernel_attr, periodic_action_cycle_thread, sdptr )) != 0 )
+		else if ( (error = pthread_create( &pActionCycleTID, &kernel_attr, periodic_action_cycle_thread, 0 )) != 0 )
 		{
 			printf( "pthread_create() croaked in %s line %d: %s\n",
 			__FILE__, __LINE__, strerror( error ) );
