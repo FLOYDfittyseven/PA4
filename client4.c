@@ -75,7 +75,9 @@ command_input_thread( void * p )
 	
 	pthread_detach( pthread_self() );
 	
-	while ( write( 1, prompt, sizeof(prompt) ), (len = read( 0, string, sizeof(string) )) > 0 )
+	write( 1, prompt, sizeof(prompt) );
+	
+	while ( (len = read( 0, string, sizeof(string) )) > 0 )
 		{
 			string[len-1]= '\0';
 			write( sd, string, strlen( string ) + 1 );
@@ -90,12 +92,14 @@ response_output_thread( void * p )
 {
 	int 			sd;
 	char			buffer[512];
+	char			prompt[] = "Enter a command>>";
 	
 	sd = *(int *)p;
 	
 	while ( (read( sd, buffer, sizeof(buffer) )) > 0 )
 		{
 			write( 1, buffer, strlen(buffer) );
+			write( 1, prompt, sizeof(prompt) );
 		}
 		
 		free(p);
@@ -119,7 +123,7 @@ main( int argc, char ** argv )
 		fprintf( stderr, "\x1b[1;31mNo host name specified.  File %s line %d.\x1b[0m\n", __FILE__, __LINE__ );
 		exit( 1 );
 	}
-	else if ( (sd = connect_to_server( argv[1], "58288" )) == -1 )
+	else if ( (sd = connect_to_server( argv[1], "58289" )) == -1 )
 	{
 		write( 1, message, sprintf( message,  "\x1b[1;31mCould not connect to server %s errno %s\x1b[0m\n", argv[1], strerror( errno ) ) );
 		return 1;
