@@ -194,7 +194,6 @@ main( int argc, char ** argv )
 		/* END OF THREAD USAGE: JOINING */
 		
 		
-		close( sd );
 		pthread_attr_destroy( &attr );
 		_exit( 0 );
 	}
