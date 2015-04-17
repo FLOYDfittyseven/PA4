@@ -18,6 +18,10 @@
 #include	<sys/termios.h>
 #include	<pthread.h>
 
+/* connect_to_server attempts to connect to the server every 3 seconds.
+ * If successful, it returns the socket descriptor. Otherwise, it returns
+ * -1.
+ */
 int
 connect_to_server( const char * server, const char * port )
 {
@@ -65,6 +69,9 @@ connect_to_server( const char * server, const char * port )
 	}
 }
 
+/* command_input_thread reads commands from the client and sends them
+ * to the server. It throttles command input with sleep()
+ */
 void *
 command_input_thread( void * p )
 {
@@ -87,6 +94,9 @@ command_input_thread( void * p )
 		return 0;
 }
 
+/* response_output_thread reads responses from the server and outputs
+ * them to the client.
+ */
 void *
 response_output_thread( void * p )
 {
@@ -99,13 +109,21 @@ response_output_thread( void * p )
 	while ( (read( sd, buffer, sizeof(buffer) )) > 0 )
 		{
 			write( 1, buffer, strlen(buffer) );
-			write( 1, prompt, sizeof(prompt) );
+			
+			if( (strncmp( buffer, "Waiting to start customer session for account", 40 )) != 0 )
+			{
+				write( 1, prompt, sizeof(prompt) );
+			}
 		}
 		
 		free(p);
 		return 0;
 }
 
+/* main connects to the server, then spawns the command input thread
+ * and the response output thread. It then joins on the latter, and 
+ * closes the socket before exiting.
+ */
 int
 main( int argc, char ** argv )
 {
@@ -123,7 +141,7 @@ main( int argc, char ** argv )
 		fprintf( stderr, "\x1b[1;31mNo host name specified.  File %s line %d.\x1b[0m\n", __FILE__, __LINE__ );
 		exit( 1 );
 	}
-	else if ( (sd = connect_to_server( argv[1], "58289" )) == -1 )
+	else if ( (sd = connect_to_server( argv[1], "58288" )) == -1 )
 	{
 		write( 1, message, sprintf( message,  "\x1b[1;31mCould not connect to server %s errno %s\x1b[0m\n", argv[1], strerror( errno ) ) );
 		return 1;
@@ -171,7 +189,7 @@ main( int argc, char ** argv )
 		}
 		else
 		{
-			printf("Quitting client process.\n");
+			printf("\n\x1b[31mQuitting client process.\x1b[0m\n");
 		}
 		/* END OF THREAD USAGE: JOINING */
 		
