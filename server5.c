@@ -13,6 +13,9 @@
 
 struct bank *B;
 
+/* claim_port binds to the given port and returns the port's file 
+ * descriptor.
+ */
 int
 claim_port( const char * port )
 {
@@ -63,6 +66,10 @@ claim_port( const char * port )
 	}
 }
 
+/* client_service_thread reads commands from the client and processes
+ * them, performing the requested actions and giving status messages
+ * back to the client.
+ */
 void *
 client_service_thread( void * arg )
 {
@@ -84,17 +91,20 @@ client_service_thread( void * arg )
 	char			*sNamePtr;
 	char			*buf2ptr;
 	double			amount;
+	bool			waiting;
+	int				serveRes;
+	struct account	*active;
 
 	sd = *(int *)arg;
 	free( arg );					/* keeping to memory management covenant */
 	pthread_detach( pthread_self() );		/* Don't join on this thread */
 	
-	/*memcpy(cmd_buf, "\0", sizeof(cmd_buf));*/
 	in_session = 0;
 	quit_flag = 0;
 	messPtr = &message[0];
 	sNamePtr = &session_name[0];
 	buf2ptr = &buf2[0];
+	waiting = false;
 	
 	/* Keep taking input while socket is open and the user has not
 	 * chosen to quit
@@ -125,19 +135,29 @@ client_service_thread( void * arg )
 			{
 				sprintf( message, "You did not specify an account name to be served.\n" );
 			}
-			else if( (serve_account( B, buf2, &in_session, &messPtr, &sNamePtr )) == -1 )
+			else
 			{
-				fprintf( stderr, "serve_account() croaked in %s line %d\n", __FILE__, __LINE__ );
-				_exit( 1 );
+				while( (serveRes = serve_account( B, buf2, &in_session, &messPtr, &sNamePtr, &waiting, &active )), waiting == true )
+				{
+					write( sd, message, strlen(message) + 1 );\
+					sleep( 2 );		//If account is already in use, attempt to serve every 2 seconds.
+				}
+				
+				if( serveRes == -1 )
+				{
+					fprintf( stderr, "serve_account() croaked in %s line %d\n", __FILE__, __LINE__ );
+					_exit( 1 );
+				}
 			}
 		}
 		else if( strcmp( cmd_buf, "quit" ) == 0 )
 		{
+			quit( in_session, active, sd );
 		}
 		else if( strcmp( cmd_buf, "deposit" ) == 0 )
 		{
 			amount = atof(buf2ptr);
-			if( (deposit( B, amount, &messPtr )) == -1 )
+			if( (deposit( B, amount, &messPtr, &active )) == -1 )
 			{
 				fprintf( stderr, "serve_account() croaked in %s line %d\n", __FILE__, __LINE__ );
 				_exit( 1 );
@@ -146,7 +166,7 @@ client_service_thread( void * arg )
 		else if( strcmp( cmd_buf, "withdraw" ) == 0 )
 		{
 			amount = atof(buf2ptr);
-			if( (withdraw( B, amount, &messPtr )) == -1 )
+			if( (withdraw( B, amount, &messPtr, &active )) == -1 )
 			{
 				fprintf( stderr, "serve_account() croaked in %s line %d\n", __FILE__, __LINE__ );
 				_exit( 1 );
@@ -154,10 +174,11 @@ client_service_thread( void * arg )
 		}
 		else if( strcmp( cmd_buf, "query" ) == 0 )
 		{
+			query( &messPtr, in_session, active );
 		}
 		else if( strcmp( cmd_buf, "end" ) == 0 )
 		{
-			if( (end( B, &in_session, &messPtr, sNamePtr )) == -1 )
+			if( (end( B, &in_session, &messPtr, sNamePtr, &active )) == -1 )
 			{
 				fprintf( stderr, "serve_account() croaked in %s line %d\n", __FILE__, __LINE__ );
 				_exit( 1 );
@@ -185,6 +206,10 @@ client_service_thread( void * arg )
 	return 0;
 }
 
+/* session_accepter_thread spawns a client service thread for each
+ * client who connects to the server. When the server's port is closed,
+ * the thread destroys the bank.
+ */
 void *
 session_accepter_thread( void * arg )
 {
@@ -221,7 +246,7 @@ session_accepter_thread( void * arg )
 			_exit( 1 );
 		}
 		
-		*fdptr = fd;					/* pointers are not the same size as ints any more. */
+		*fdptr = fd;					// pointers are not the same size as ints any more.
 		
 		if ( pthread_create( &cServiceTID, &attr, client_service_thread, fdptr ) != 0 )
 		{
@@ -239,17 +264,62 @@ session_accepter_thread( void * arg )
 		printf( "pthread_attr_init() failed in file %s line %d\n", __FILE__, __LINE__ );
 		_exit( 1 );
 	}
-	
+	DestroyBank( B );
 	close( sd );
 	return 0;
 }
 
+/* periodic_action_cycle_thread prints out a list of all accounts in 
+ * the bank every 20 seconds. Each time it prints, it first locks the 
+ * bank's mutex so as to avoid printing simultaneously with account 
+ * creation.
+ */
 void *
 periodic_action_cycle_thread( void * arg )
 {
+	struct account	*ptr;
+	int				count;
+	
+	pthread_detach( pthread_self() );
+	
+	while( (sleep(20)) == 0 )
+	{
+		pthread_mutex_lock( &B->mutex );
+		
+		ptr = B->accounts[0];
+		count = 0;
+		printf( "\n\x1b[34mActive Accounts\x1b[0m\n" );
+		if( B->numAccounts == 0 )
+		{
+			printf( "\t\x1b[34mNone\x1b[0m\n" );
+		}
+		else
+		{
+			while( count < B->numAccounts )
+			{
+				printf( "\x1b[34m%s\x1b[0m", ptr->accountname );\
+			
+				if( ptr->flag )
+				{
+					printf( "\x1b[34m\t\tIN SERVICE\x1b[0m" );
+				}
+			
+				printf( "\x1b[34m\n\tBalance: %.2f\x1b[0m\n", ptr->balance );
+			
+				count++;
+				ptr = B->accounts[count];
+			}
+		}
+		
+		pthread_mutex_unlock( &B->mutex );
+	}
 	return 0;
 }
 
+/* main claims port 58288 and initializes global variables. Then it
+ * spawns the session acceptor thread and the periodic action cycle
+ * thread before calling pthread_exit()
+ */
 int
 main( int argc, char ** argv )
 {
@@ -271,9 +341,9 @@ main( int argc, char ** argv )
 		printf( "pthread_attr_setscope() failed in file %s line %d\n", __FILE__, __LINE__ );
 		return 0;
 	}
-	else if ( (sd = claim_port( "58289" )) == -1 )
+	else if ( (sd = claim_port( "58288" )) == -1 )
 	{
-		write( 1, message, sprintf( message,  "\x1b[1;31mCould not bind to port %s errno %s\x1b[0m\n", "58289", strerror( errno ) ) );
+		write( 1, message, sprintf( message,  "\x1b[1;31mCould not bind to port %s errno %s\x1b[0m\n", "58288", strerror( errno ) ) );
 		return 1;
 	}
 	else if ( listen( sd, 100 ) == -1 )
